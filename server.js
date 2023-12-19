@@ -6,42 +6,9 @@ const port = process.env.PORT || 3001;
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 app.use(cors()); 
+
+
 app.use(express.json());
-
-const pool = mysql.createPool({
-  host: 'localhost',
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_DATABASE,
-  port: process.env.DB_PORT
-})
-
-pool.getConnection((err, connection) => {
-  if (err) {
-    console.error('Erreur de connexion à la base de données:', err);
-    return;
-  }
-
-  console.log('Connecté à la base de données MySQL');
-
-  // Ici, vous pouvez exécuter vos requêtes SQL
-
-  // Libérez la connexion après usage
-  connection.release();
-});
-
-pool.on('error', (err) => {
-  console.error('Erreur de pool de connexions:', err);
-});
-
-process.on('SIGINT', () => {
-  pool.end((err) => {
-    if (err) {
-      console.error('Erreur lors de la fermeture de la pool de connexions:', err);
-    }
-    process.exit(0);
-  });
-});
 
 app.get('/cartes', async (req, res) => {
   const page = parseInt(req.query.page) || 1;
@@ -57,7 +24,7 @@ app.get('/cartes', async (req, res) => {
   let whereClauses = [];
   if (name) {
     whereClauses.push('nom LIKE ?');
-    queryParams.push(`%${name}%`); // Utiliser LIKE pour une recherche partielle
+    queryParams.push(`%${name}%`);
   }
 
   if (type) {
@@ -73,14 +40,19 @@ app.get('/cartes', async (req, res) => {
     query += ' WHERE ' + whereClauses.join(' AND ');
   }
 
-  // Ajouter la pagination
   query += ' LIMIT ? OFFSET ?';
   queryParams.push(limit, offset);
 
   try {
-    const connection = await pool.getConnection();
-    const [rows] = await connection.query('SELECT * FROM cartes LIMIT ? OFFSET ?', [limit, offset]);
-    connection.release();
+    const connection = await mysql.createConnection({
+      host: process.env.DB_HOST,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_DATABASE,
+    });
+
+    const [rows] = await connection.query(query, queryParams);
+    await connection.end();
 
     res.json(rows);
   } catch (error) {
@@ -90,11 +62,15 @@ app.get('/cartes', async (req, res) => {
 });
 
 
-
 app.get('/cartes/:id', async (req, res) => {
+  
   try {
-    const connection = await pool.getConnection();
-
+    const connection = await mysql.createConnection({
+      host: process.env.DB_HOST,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_DATABASE,
+    });
     const { id } = req.params;
     const [rows] = await connection.query('SELECT * FROM cartes WHERE id = ?', [id]);
 
@@ -110,13 +86,21 @@ app.get('/cartes/:id', async (req, res) => {
 });
 
 app.delete('/cartes/:id', async (req, res) => {
+  const userId = req.session.userId;
   const { id } = req.params;
 
   try {
-    const connection = await pool.getConnection();
-
+    const connection = await mysql.createConnection({
+      host: process.env.DB_HOST,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_DATABASE,
+    });
+    if (!userId) {
+      return res.status(401).json({ error: 'Non autorisé' });
+    }
     await connection.query('DELETE FROM cartes WHERE id = ?', [id]);
-    await connection.release();
+    await connection.end();
 
     res.json({ message: 'Carte supprimée avec succès' });
   } catch (error) {
@@ -126,6 +110,7 @@ app.delete('/cartes/:id', async (req, res) => {
 });
 
 app.put('/cartes/:id', async (req, res) => {
+  const userId = req.session.userId;
   const { id } = req.params;
   const { nom, type, description, image_url } = req.body;
 
@@ -136,7 +121,9 @@ app.put('/cartes/:id', async (req, res) => {
       password: process.env.DB_PASSWORD,
       database: process.env.DB_DATABASE,
     });
-
+    if (!userId) {
+      return res.status(401).json({ error: 'Non autorisé' });
+    }
     await connection.query(
       'UPDATE cartes SET nom = ?, type = ?, description = ?, image_url = ? WHERE id = ?',
       [nom, type, description, image_url, id]
@@ -149,31 +136,127 @@ app.put('/cartes/:id', async (req, res) => {
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
+const getUserIdFromDatabase = async (pseudo, motDePasse) => {
+  try {
+    const connection = await mysql.createConnection({
+      host: process.env.DB_HOST,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_DATABASE,
+    });
 
-app.post('/api/login', async (req, res) => {
-    const { pseudo, mot_de_passe } = req.body;
-  
-    try {
-      const [rows] = await connection.query('SELECT * FROM utilisateur WHERE pseudo = ?', [pseudo]);
-  
-      if (rows.length === 1) {
-        const hashedPassword = rows[0].mot_de_passe;
-  
-        bcrypt.compare(mot_de_passe, hashedPassword, (err, result) => {
-          if (result) {
-            res.json({ success: true, message: 'Connexion réussie' });
+    const [rows] = await connection.query('SELECT id, mot_de_passe FROM utilisateur WHERE pseudo = ?', [pseudo]);
+
+    if (rows.length === 1) {
+      const hashedPassword = rows[0].mot_de_passe;
+      const passwordMatch = await bcrypt.compare(motDePasse, hashedPassword);
+
+      if (passwordMatch) {
+        return rows[0].id;
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error('Erreur lors de la récupération de l\'ID de l\'utilisateur depuis la base de données:', error);
+    throw error;
+  }
+};
+
+
+app.post('/connexion', async (req, res) => {
+  const { pseudo, mot_de_passe } = req.body;
+
+  try {
+    const connection = await mysql.createConnection({
+      host: process.env.DB_HOST,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_DATABASE,
+    });
+
+    const [rows] = await connection.query('SELECT * FROM utilisateur WHERE pseudo = ?', [pseudo]);
+
+    if (rows.length === 1) {
+      const hashedPassword = rows[0].mot_de_passe;
+
+      bcrypt.compare(mot_de_passe, hashedPassword, (err, result) => {
+        if (result) {
+          const userId = getUserIdFromDatabase(pseudo, mot_de_passe);
+
+          if (userId) {
+            res.json({ success: true, message: 'Connexion réussie', userId: userId });
+            console.log('ID de l\'utilisateur connecté :', userId); 
           } else {
             res.status(401).json({ success: false, message: 'Identifiants incorrects' });
           }
+        } else {
+          res.status(401).json({ success: false, message: 'Identifiants incorrects' });
+        }
+      });
+    } else {
+      res.status(401).json({ success: false, message: 'Identifiants incorrects' });
+    }
+    await connection.end();
+  } catch (error) {
+    console.error('Erreur lors de la connexion :', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
+
+  app.get('/utilisateurs', async (req, res) => {
+    let conn;
+    try {
+        conn = await mysql.createConnection({
+            host: process.env.DB_HOST,
+            user: process.env.DB_USER,
+            password: process.env.DB_PASSWORD,
+            database: process.env.DB_DATABASE,
         });
-      } else {
-        res.status(401).json({ success: false, message: 'Identifiants incorrects' });
-      }
-    } catch (error) {
-      console.error('Erreur lors de la connexion :', error);
-      res.status(500).json({ success: false, message: 'Erreur serveur' });
+
+        const rows = await conn.query("SELECT id, pseudo FROM utilisateur");
+
+        const utilisateurs = rows.map(utilisateur => {
+            return {
+                id: utilisateur.id,
+                pseudo: utilisateur.pseudo,
+            };
+        });
+
+        res.status(200).json(utilisateurs);
+    } catch (err) {
+        console.error("Erreur lors de la récupération des utilisateurs :", err);
+        res.status(500).send("Erreur interne du serveur");
+    } finally {
+        if (conn) {
+            conn.end();
+        }
     }
 });
+
+app.post('/utilisateurs', async (req, res) => {
+  const { pseudo, mot_de_passe } = req.body;
+
+  try {
+      const connection = await mysql.createConnection({
+          host: process.env.DB_HOST,
+          user: process.env.DB_USER,
+          password: process.env.DB_PASSWORD,
+          database: process.env.DB_DATABASE,
+      });
+
+      const hashedPassword = await bcrypt.hash(mot_de_passe, 10);
+
+      await connection.query("INSERT INTO utilisateur (pseudo, mot_de_passe) VALUES (?, ?)", [pseudo, hashedPassword]);
+      res.status(201).json({ success: true, message: "Utilisateur ajouté avec succès" });
+
+      connection.end();
+  } catch (err) {
+      console.error("Erreur lors de l'ajout de l'utilisateur :", err);
+      res.status(500).json({ success: false, error: "Erreur interne du serveur", details: err.message });
+  }
+});
+
 
 app.listen(port, () => {
   console.log(`Serveur démarré sur http://localhost:${port}`);
