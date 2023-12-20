@@ -112,11 +112,11 @@ app.put('/cartes/:id', async (req, res) => {
 
   try {
     const connection = await pool.getConnection();
-
     await connection.query(
-      'UPDATE cartes SET nom = ?, type = ?, description = ?, image_url = ? WHERE id = ? AND userId = ?',
-      [nom, type, description, image_url, id, userId]
+      'UPDATE cartes SET nom = ?, type = ?, description = ?, image_url = ? WHERE id = ?',
+      [nom, type, description, image_url, id]
     );
+
     await connection.release();
     res.json({ message: 'Carte mise à jour avec succès' });
   } catch (error) {
@@ -124,6 +124,7 @@ app.put('/cartes/:id', async (req, res) => {
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
+
 
 const getUserIdFromDatabase = async (pseudo, motDePasse) => {
   try {
