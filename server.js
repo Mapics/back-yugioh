@@ -112,7 +112,8 @@ app.delete('/cartes/:id', async (req, res) => {
 });
 
 app.put('/cartes/:id', async (req, res) => {
-  const userId = req.session.userId;
+  const authorizationHeader = req.headers.authorization;
+  const userId = authorizationHeader ? authorizationHeader.split(' ')[1] : null;
   const { id } = req.params;
   const { nom, type, description, image_url } = req.body;
 
@@ -123,13 +124,17 @@ app.put('/cartes/:id', async (req, res) => {
       password: process.env.DB_PASSWORD,
       database: process.env.DB_DATABASE,
     });
+
     if (!userId) {
       return res.status(401).json({ error: 'Non autorisé' });
     }
+
+    // Ajoutez la clause userId à la requête UPDATE
     await connection.query(
-      'UPDATE cartes SET nom = ?, type = ?, description = ?, image_url = ? WHERE id = ?',
-      [nom, type, description, image_url, id]
+      'UPDATE cartes SET nom = ?, type = ?, description = ?, image_url = ? WHERE id = ? AND userId = ?',
+      [nom, type, description, image_url, id, userId]
     );
+
     await connection.end();
 
     res.json({ message: 'Carte mise à jour avec succès' });
@@ -138,6 +143,7 @@ app.put('/cartes/:id', async (req, res) => {
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
+
 const getUserIdFromDatabase = async (pseudo, motDePasse) => {
   try {
     const connection = await mysql.createConnection({
