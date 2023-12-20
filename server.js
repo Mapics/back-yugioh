@@ -108,13 +108,58 @@ app.put('/cartes/:id', async (req, res) => {
   const authorizationHeader = req.headers.authorization;
   const userId = authorizationHeader ? authorizationHeader.split(' ')[1] : null;
   const { id } = req.params;
-  const { nom, type, description, image_url } = req.body;
+  const {
+    nom,
+    type,
+    frameType,
+    description,
+    race,
+    archetype,
+    ygoprodeck_url,
+    set_name,
+    set_code,
+    set_rarity,
+    set_price,
+    cardmarket_price,
+    tcgplayer_price,
+    ebay_price,
+    amazon_price,
+    coolstuffinc_price,
+    image_url,
+    atk,
+    def,
+    level,
+    attribute
+  } = req.body;
 
   try {
     const connection = await pool.getConnection();
     await connection.query(
-      'UPDATE cartes SET nom = ?, type = ?, description = ?, image_url = ? WHERE id = ?',
-      [nom, type, description, image_url, id]
+      'UPDATE cartes SET nom = ?, type = ?, frameType = ?, description = ?, race = ?, archetype = ?, ygoprodeck_url = ?, set_name = ?, set_code = ?, set_rarity = ?, set_price = ?, cardmarket_price = ?, tcgplayer_price = ?, ebay_price = ?, amazon_price = ?, coolstuffinc_price = ?, image_url = ?, atk = ?, def = ?, level = ?, attribute = ? WHERE id = ?',
+      [
+        nom,
+        type,
+        frameType,
+        description,
+        race,
+        archetype,
+        ygoprodeck_url,
+        set_name,
+        set_code,
+        set_rarity,
+        set_price,
+        cardmarket_price,
+        tcgplayer_price,
+        ebay_price,
+        amazon_price,
+        coolstuffinc_price,
+        image_url,
+        atk,
+        def,
+        level,
+        attribute,
+        id
+      ]
     );
 
     await connection.release();
