@@ -23,10 +23,14 @@ app.get('/cartes', async (req, res) => {
   const offset = (page - 1) * limit;
   const name = req.query.name;
   const type = req.query.type;
+  const rarity = req.query.rarity;
+  const sortPrice = req.query.sortPrice; // 'ASC' or 'DESC' for price sorting
+  const sortAlphabetical = req.query.sortAlphabetical; // 'ASC' for alphabetical sorting
 
   let query = 'SELECT * FROM cartes';
   let queryParams = [];
 
+  // Construct the WHERE clause if necessary
   let whereClauses = [];
   if (name) {
     whereClauses.push('nom LIKE ?');
@@ -35,30 +39,54 @@ app.get('/cartes', async (req, res) => {
 
   if (type) {
     if (type === 'Monster Card') {
+      // Inclut toutes les cartes qui ne sont ni des Spell Cards ni des Trap Cards
       whereClauses.push("type NOT IN ('Spell Card', 'Trap Card')");
     } else {
+      // Pour Spell Card et Trap Card, utilisez le type tel quel
       whereClauses.push('type = ?');
       queryParams.push(type);
     }
+  }
+
+  if (rarity) {
+    whereClauses.push('set_rarity = ?');
+    queryParams.push(rarity);
   }
 
   if (whereClauses.length > 0) {
     query += ' WHERE ' + whereClauses.join(' AND ');
   }
 
+  // Add sorting logic
+  // Alphabetical sorting takes precedence if requested
+  if (sortAlphabetical === 'ASC') {
+    query += ' ORDER BY nom ASC';
+  } else if (sortPrice) {
+    // Price sorting if alphabetical sorting is not requested
+    query += ' ORDER BY set_price ' + (sortPrice === 'DESC' ? 'DESC' : 'ASC');
+  }
+
+  // Add pagination
   query += ' LIMIT ? OFFSET ?';
   queryParams.push(limit, offset);
 
+  
+
   try {
-    const connection = await pool.getConnection();
+    const connection = await mysql.createConnection({
+      host: process.env.DB_HOST,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_DATABASE,
+    });
 
     const [rows] = await connection.query(query, queryParams);
-    await connection.release();
+    await connection.end();
 
     res.json(rows);
   } catch (error) {
-    console.error('Erreur lors de la récupération des cartes depuis la base de données:', error);
-    res.status(500).json({ error: 'Erreur serveur' });
+    console.error('Error fetching cards from the database:', error);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
