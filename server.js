@@ -20,7 +20,7 @@ const pool = mysql.createPool({
 
 app.get('/cartes', async (req, res) => {
   const page = parseInt(req.query.page) || 1;
-  const limit = parseInt(req.query.limit) || 20;
+  const limit = parseInt(req.query.limit) || 27;
   const offset = (page - 1) * limit;
   const name = req.query.name;
   const type = req.query.type;
