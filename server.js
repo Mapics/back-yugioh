@@ -5,6 +5,7 @@ const app = express();
 const port = process.env.PORT || 3001;
 const cors = require('cors');
 const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 app.use(cors()); 
 
 app.use(express.json());
@@ -233,28 +234,22 @@ app.post('/connexion', async (req, res) => {
 
     if (rows.length === 1) {
       const hashedPassword = rows[0].mot_de_passe;
-
-      // Utilisez bcrypt.compare avec une promesse
-      const result = await new Promise((resolve, reject) => {
-        bcrypt.compare(mot_de_passe, hashedPassword, (err, result) => {
-          if (err) reject(err);
-          resolve(result);
-        });
-      });
+      const result = await bcrypt.compare(mot_de_passe, hashedPassword);
 
       if (result) {
         const userId = await getUserIdFromDatabase(pseudo, mot_de_passe);
 
         if (userId) {
-          res.json({ success: true, message: `Connexion réussie. L'ID de l'utilisateur est ${userId}`, userId: userId });
+          // Générer un token JWT
+          const token = jwt.sign({ userId }, 'votre_secret_key_secrete', { expiresIn: '1h' });
+
+          res.json({ success: true, message: 'Connexion réussie', token });
         } else {
           res.status(401).json({ success: false, message: 'Identifiants incorrects' });
         }
       } else {
         res.status(401).json({ success: false, message: 'Identifiants incorrects' });
       }
-    } else {
-      res.status(401).json({ success: false, message: 'Identifiants incorrects' });
     }
 
     await connection.release();
@@ -263,7 +258,6 @@ app.post('/connexion', async (req, res) => {
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });
-
 
   app.get('/utilisateurs', async (req, res) => {
     try {
