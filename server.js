@@ -1,3 +1,4 @@
+// Importing required libraries and modules
 require('dotenv').config();
 const express = require('express');
 const mysql = require('mysql2/promise');
@@ -6,19 +7,22 @@ const port = process.env.PORT || 3001;
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-app.use(cors()); 
+app.use(cors());
 
 app.use(express.json());
 
+// Creating a connection pool to the MySQL database
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_DATABASE,
   port: process.env.DB_PORT,
-})
+});
 
+// Endpoint to retrieve a list of cards with optional filters, sorting, and pagination
 app.get('/cartes', async (req, res) => {
+  // Extracting query parameters from the request
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 20;
   const offset = (page - 1) * limit;
@@ -31,7 +35,6 @@ app.get('/cartes', async (req, res) => {
   let query = 'SELECT * FROM cartes';
   let queryParams = [];
 
-  // Construct the WHERE clause if necessary
   let whereClauses = [];
   if (name) {
     whereClauses.push('nom LIKE ?');
@@ -40,10 +43,10 @@ app.get('/cartes', async (req, res) => {
 
   if (type) {
     if (type === 'Monster Card') {
-      // Inclut toutes les cartes qui ne sont ni des Spell Cards ni des Trap Cards
+      // Includes all cards that are neither Spell Cards nor Trap Cards
       whereClauses.push("type NOT IN ('Spell Card', 'Trap Card')");
     } else {
-      // Pour Spell Card et Trap Card, utilisez le type tel quel
+      // For Spell Card and Trap Card, use the type as is
       whereClauses.push('type = ?');
       queryParams.push(type);
     }
@@ -58,8 +61,7 @@ app.get('/cartes', async (req, res) => {
     query += ' WHERE ' + whereClauses.join(' AND ');
   }
 
-  // Add sorting logic
-  // Alphabetical sorting takes precedence if requested
+  // Adding sorting logic
   if (sortAlphabetical === 'ASC') {
     query += ' ORDER BY nom ASC';
   } else if (sortPrice) {
@@ -67,13 +69,12 @@ app.get('/cartes', async (req, res) => {
     query += ' ORDER BY set_price ' + (sortPrice === 'DESC' ? 'DESC' : 'ASC');
   }
 
-  // Add pagination
+  // Adding pagination
   query += ' LIMIT ? OFFSET ?';
   queryParams.push(limit, offset);
 
-  
-
   try {
+    // Creating a new connection and executing the query
     const connection = await mysql.createConnection({
       host: process.env.DB_HOST,
       user: process.env.DB_USER,
@@ -91,18 +92,20 @@ app.get('/cartes', async (req, res) => {
   }
 });
 
-
+// Endpoint to retrieve a single card by ID
 app.get('/cartes/:id', async (req, res) => {
-  
   try {
+    // Creating a new connection from the pool
     const connection = await pool.getConnection();
 
     const { id } = req.params;
     const [rows] = await connection.query('SELECT * FROM cartes WHERE id = ?', [id]);
 
+    // Handling the case where the card is not found
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Carte non trouvée' });
     }
+
     await connection.release();
     res.json(rows[0]);
   } catch (error) {
@@ -111,18 +114,24 @@ app.get('/cartes/:id', async (req, res) => {
   }
 });
 
+// Endpoint to delete a card by ID
 app.delete('/cartes/:id', async (req, res) => {
+  // Extracting user ID from the authorization header
   const authorizationHeader = req.headers.authorization;
   const userId = authorizationHeader ? authorizationHeader.split(' ')[1] : null;
 
   const { id } = req.params;
 
   try {
+    // Creating a new connection from the pool
     const connection = await pool.getConnection();
 
+    // Checking if the user is authenticated
     if (!userId) {
       return res.status(401).json({ error: 'Non autorisé' });
     }
+
+    // Deleting the card from the database
     await connection.query('DELETE FROM cartes WHERE id = ?', [id]);
     await connection.release();
 
@@ -133,10 +142,14 @@ app.delete('/cartes/:id', async (req, res) => {
   }
 });
 
+// Endpoint to update a card by ID
 app.put('/cartes/:id', async (req, res) => {
+  // Extracting user ID from the authorization header
   const authorizationHeader = req.headers.authorization;
   const userId = authorizationHeader ? authorizationHeader.split(' ')[1] : null;
   const { id } = req.params;
+
+  // Extracting card data from the request body
   const {
     nom,
     type,
@@ -162,7 +175,10 @@ app.put('/cartes/:id', async (req, res) => {
   } = req.body;
 
   try {
+    // Creating a new connection from the pool
     const connection = await pool.getConnection();
+
+    // Updating the card in the database
     await connection.query(
       'UPDATE cartes SET nom = ?, type = ?, frameType = ?, description = ?, race = ?, archetype = ?, ygoprodeck_url = ?, set_name = ?, set_code = ?, set_rarity = ?, set_price = ?, cardmarket_price = ?, tcgplayer_price = ?, ebay_price = ?, amazon_price = ?, coolstuffinc_price = ?, image_url = ?, atk = ?, def = ?, level = ?, attribute = ? WHERE id = ?',
       [
@@ -199,7 +215,7 @@ app.put('/cartes/:id', async (req, res) => {
   }
 });
 
-
+// Function to get the user ID from the database using the provided username and password
 const getUserIdFromDatabase = async (pseudo, motDePasse) => {
   try {
     const connection = await pool.getConnection();
@@ -223,25 +239,29 @@ const getUserIdFromDatabase = async (pseudo, motDePasse) => {
   }
 };
 
-
+// Endpoint for user login
 app.post('/connexion', async (req, res) => {
   const { pseudo, mot_de_passe } = req.body;
 
   try {
     const connection = await pool.getConnection();
 
+    // Querying the database to find the user with the provided username
     const [rows] = await connection.query('SELECT * FROM utilisateur WHERE pseudo = ?', [pseudo]);
 
     if (rows.length === 1) {
       const hashedPassword = rows[0].mot_de_passe;
+
+      // Comparing the provided password with the hashed password from the database
       const result = await bcrypt.compare(mot_de_passe, hashedPassword);
 
       if (result) {
+        // If the passwords match, get the user ID from the database
         const userId = await getUserIdFromDatabase(pseudo, mot_de_passe);
 
         if (userId) {
-          // Générer un token JWT
-          const token = jwt.sign({ userId }, 'votre_secret_key_secrete', { expiresIn: '1h' });
+          // Generate a JWT token for authentication
+          const token = jwt.sign({ userId }, '1Aqzsedrf!', { expiresIn: '1h' });
 
           res.json({ success: true, message: 'Connexion réussie', token });
         } else {
@@ -259,49 +279,55 @@ app.post('/connexion', async (req, res) => {
   }
 });
 
-  app.get('/utilisateurs', async (req, res) => {
-    try {
-      const connection = await pool.getConnection();
+// Endpoint to retrieve a list of users
+app.get('/utilisateurs', async (req, res) => {
+  try {
+    const connection = await pool.getConnection();
 
-        const rows = await conn.query("SELECT id, pseudo FROM utilisateur");
+    // Querying the database to get the list of users
+    const rows = await conn.query("SELECT id, pseudo FROM utilisateur");
 
-        const utilisateurs = rows.map(utilisateur => {
-            return {
-                id: utilisateur.id,
-                pseudo: utilisateur.pseudo,
-            };
-        });
+    // Mapping the result to a simplified user object
+    const utilisateurs = rows.map(utilisateur => {
+      return {
+        id: utilisateur.id,
+        pseudo: utilisateur.pseudo,
+      };
+    });
 
-        res.status(200).json(utilisateurs);
-    } catch (err) {
-        console.error("Erreur lors de la récupération des utilisateurs :", err);
-        res.status(500).send("Erreur interne du serveur");
-    } finally {
-        if (conn) {
-            connection.release();
-        }
+    res.status(200).json(utilisateurs);
+  } catch (err) {
+    console.error("Erreur lors de la récupération des utilisateurs :", err);
+    res.status(500).send("Erreur interne du serveur");
+  } finally {
+    if (conn) {
+      connection.release();
     }
+  }
 });
 
+// Endpoint to add a new user to the database
 app.post('/utilisateurs', async (req, res) => {
   const { pseudo, mot_de_passe } = req.body;
 
   try {
     const connection = await pool.getConnection();
 
-      const hashedPassword = await bcrypt.hash(mot_de_passe, 10);
+    // Hashing the provided password before storing it in the database
+    const hashedPassword = await bcrypt.hash(mot_de_passe, 10);
 
-      await connection.query("INSERT INTO utilisateur (pseudo, mot_de_passe) VALUES (?, ?)", [pseudo, hashedPassword]);
-      res.status(201).json({ success: true, message: "Utilisateur ajouté avec succès" });
+    // Inserting the new user into the database
+    await connection.query("INSERT INTO utilisateur (pseudo, mot_de_passe) VALUES (?, ?)", [pseudo, hashedPassword]);
+    res.status(201).json({ success: true, message: "Utilisateur ajouté avec succès" });
 
-      connection.release();
+    connection.release();
   } catch (err) {
-      console.error("Erreur lors de l'ajout de l'utilisateur :", err);
-      res.status(500).json({ success: false, error: "Erreur interne du serveur", details: err.message });
+    console.error("Erreur lors de l'ajout de l'utilisateur :", err);
+    res.status(500).json({ success: false, error: "Erreur interne du serveur", details: err.message });
   }
 });
 
-
+// Starting the server
 app.listen(port, () => {
   console.log(`Serveur démarré sur http://localhost:${port}`);
 });
